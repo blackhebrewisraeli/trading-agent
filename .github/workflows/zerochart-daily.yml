@@ -4,9 +4,13 @@ on:
   # Allow manual runs from the GitHub Actions UI.
   workflow_dispatch:
 
-  # 20:30 UTC Monday-Friday (23:30 Israel time during daylight saving).
+  # Run weekdays after the US market close (16:00 ET).
+  # US close in UTC: 20:00 (summer/EDT) and 21:00 (winter/EST), so a single
+  # 21:30 UTC trigger is always after the close:
+  #   - Winter (Israel Standard Time, UTC+2): 23:30 Israel time
+  #   - Summer (Israel Daylight Time, UTC+3): 00:30 Israel time (next day)
   schedule:
-    - cron: '30 20 * * 1-5'
+    - cron: '30 21 * * 1-5'
 
 jobs:
   scan:
