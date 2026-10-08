@@ -1,0 +1,108 @@
+# ZeroChart ticker universe.
+# One symbol per line. Blank lines and lines starting with "#" are ignored.
+
+# ----------------------------------------------------------------------------
+# Major market ETFs
+# ----------------------------------------------------------------------------
+SPY
+QQQ
+DIA
+IWM
+VOO
+VTI
+XLK
+XLF
+XLE
+XLV
+XLY
+XLI
+XLB
+XLU
+XLP
+SMH
+ARKK
+GLD
+SLV
+
+# ----------------------------------------------------------------------------
+# Magnificent 7
+# ----------------------------------------------------------------------------
+AAPL
+MSFT
+GOOGL
+AMZN
+NVDA
+META
+TSLA
+
+# ----------------------------------------------------------------------------
+# Top S&P 500 / mega-cap companies
+# ----------------------------------------------------------------------------
+JPM
+JNJ
+V
+WMT
+PG
+UNH
+HD
+MA
+DIS
+KO
+PEP
+CSCO
+INTC
+VZ
+PFE
+MRK
+ABBV
+AVGO
+ORCL
+CRM
+ADBE
+NFLX
+AMD
+QCOM
+TXN
+COST
+MCD
+NKE
+CAT
+BA
+HON
+GS
+MS
+BAC
+C
+WFC
+AXP
+CVX
+XOM
+LMT
+RTX
+GE
+IBM
+ACN
+
+# ----------------------------------------------------------------------------
+# Popular swing-trading / high-beta / growth stocks
+# ----------------------------------------------------------------------------
+PYPL
+UBER
+ABNB
+SHOP
+XYZ
+SOFI
+PLTR
+AFRM
+COIN
+MRNA
+PINS
+SNAP
+DKNG
+RBLX
+HOOD
+LCID
+RIVN
+F
+GM
+AAL

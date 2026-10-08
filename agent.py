@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -42,10 +44,16 @@ from supabase import create_client
 
 load_dotenv()
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("zerochart.agent")
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-TICKERS = ["SPY", "QQQ", "AAPL", "MSFT"]
+TICKERS_FILE = Path(__file__).resolve().parent / "tickers.txt"
 
 # Technical indicator windows.
 SMA_FAST = 10
@@ -65,11 +73,40 @@ RADAR_MIN_VOLUME_SPIKE = 1.5
 
 TABLE_NAME = "assets_status"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-logger = logging.getLogger("zerochart.agent")
+# Delay between per-ticker downloads to avoid Yahoo Finance rate limits.
+REQUEST_DELAY_SECONDS = 0.5
+
+
+def load_tickers(path: Path) -> list[str]:
+    """Load ticker symbols from a text file.
+
+    Ignores blank lines and comment lines starting with ``#``. Inline
+    comments are stripped and the resulting symbols are deduplicated
+    while preserving their original order.
+    """
+    if not path.exists():
+        logger.error("Tickers file not found: %s", path)
+        raise SystemExit(1)
+
+    tickers: list[str] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.split("#", 1)[0].strip()
+            if line:
+                tickers.append(line.upper())
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for ticker in tickers:
+        if ticker not in seen:
+            seen.add(ticker)
+            unique.append(ticker)
+
+    logger.info("Loaded %d tickers from %s", len(unique), path)
+    return unique
+
+
+TICKERS = load_tickers(TICKERS_FILE)
 
 
 # --------------------------------------------------------------------------- #
@@ -307,18 +344,22 @@ def upsert_to_supabase(rows: list[dict[str, Any]]) -> None:
 
 
 def main() -> None:
-    logger.info("ZeroChart agent starting for tickers: %s", ", ".join(TICKERS))
+    logger.info("ZeroChart agent starting for %d tickers", len(TICKERS))
 
     rows: list[dict[str, Any]] = []
-    for ticker in TICKERS:
+    for index, ticker in enumerate(TICKERS, start=1):
         try:
             payload = analyze_ticker(ticker)
         except Exception:
-            logger.exception("Failed to analyze %s", ticker)
-            continue
+            logger.exception("Failed to analyze %s; continuing to next ticker", ticker)
+            payload = None
 
         if payload is not None:
             rows.append(payload)
+
+        # Throttle requests to avoid Yahoo Finance rate limits.
+        if index < len(TICKERS):
+            time.sleep(REQUEST_DELAY_SECONDS)
 
     if not rows:
         logger.error("No ticker produced a valid payload; nothing to upsert.")
