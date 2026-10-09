@@ -360,13 +360,29 @@ def upsert_to_supabase(rows: list[dict[str, Any]]) -> None:
 
 
 def collect_strong_signals(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return rows where reward exceeds risk and volume spikes are elevated."""
+    """Return rows that qualify as strong signals.
+
+    Forex symbols (ending with ``=X``) have no volume data on Yahoo Finance,
+    so they only need a favorable reward/risk profile. All other assets must
+    also show an elevated volume spike.
+    """
     strong: list[dict[str, Any]] = []
     for row in rows:
         reward = row.get("reward_pct")
         risk = row.get("risk_pct")
+        if reward is None or risk is None:
+            continue
+
+        ticker = str(row.get("ticker", ""))
+        is_forex = ticker.endswith("=X")
+
+        if is_forex:
+            if reward > risk:
+                strong.append(row)
+            continue
+
         spike = row.get("volume_spike")
-        if reward is None or risk is None or spike is None:
+        if spike is None:
             continue
         if reward > risk and spike > STRONG_SIGNAL_MIN_VOLUME_SPIKE:
             strong.append(row)
@@ -386,9 +402,9 @@ def _format_percent(value: float) -> str:
     return f"{value * 100:.2f}%"
 
 
-def _format_ratio(value: float) -> str:
-    """Render a volume-spike ratio as a multiplier string."""
-    return f"{value:.2f}x"
+def _format_ratio(value: float | None) -> str:
+    """Render a volume-spike ratio, falling back to N/A when missing."""
+    return "N/A" if value is None else f"{value:.2f}x"
 
 
 def _format_rsi(value: float | None) -> str:
