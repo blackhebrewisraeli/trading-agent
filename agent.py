@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import requests
 import yfinance as yf
 from dotenv import load_dotenv
 from supabase import create_client
@@ -72,6 +73,11 @@ RADAR_MIN_RATIO = 3.0
 RADAR_MIN_VOLUME_SPIKE = 1.5
 
 TABLE_NAME = "assets_status"
+
+# Telegram strong-signal notification.
+TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
+STRONG_SIGNAL_MIN_VOLUME_SPIKE = 1.2
+MAX_TELEGRAM_SIGNALS = 15
 
 # Delay between per-ticker downloads to avoid Yahoo Finance rate limits.
 REQUEST_DELAY_SECONDS = 0.5
@@ -244,6 +250,13 @@ def analyze_ticker(ticker: str) -> dict[str, Any] | None:
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
+    # Drop rows with a missing Close (e.g. today's not-yet-printed candle),
+    # otherwise NaN prices flow into the payload and break the JSON upsert.
+    df = df.dropna(subset=["Close"])
+    if df.empty:
+        logger.warning("No data returned for %s; skipping", ticker)
+        return None
+
     close = df["Close"]
     volume = df["Volume"]
     high = df["High"]
@@ -339,6 +352,93 @@ def upsert_to_supabase(rows: list[dict[str, Any]]) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Telegram notifications
+# --------------------------------------------------------------------------- #
+
+
+def collect_strong_signals(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return rows where reward exceeds risk and volume spikes are elevated."""
+    strong: list[dict[str, Any]] = []
+    for row in rows:
+        reward = row.get("reward_pct")
+        risk = row.get("risk_pct")
+        spike = row.get("volume_spike")
+        if reward is None or risk is None or spike is None:
+            continue
+        if reward > risk and spike > STRONG_SIGNAL_MIN_VOLUME_SPIKE:
+            strong.append(row)
+
+    # Rank by reward/risk ratio so the most asymmetric setups come first.
+    strong.sort(
+        key=lambda row: row["reward_pct"] / row["risk_pct"]
+        if row["risk_pct"]
+        else float("inf"),
+        reverse=True,
+    )
+    return strong
+
+
+def _format_percent(value: float) -> str:
+    """Render a fractional value as a percentage string."""
+    return f"{value * 100:.2f}%"
+
+
+def _format_ratio(value: float) -> str:
+    """Render a volume-spike ratio as a multiplier string."""
+    return f"{value:.2f}x"
+
+
+def build_telegram_message(strong_signals: list[dict[str, Any]]) -> str:
+    """Format strong signals (or a fallback) into a Telegram message."""
+    if not strong_signals:
+        return "ZeroChart Scan: No strong signals today."
+
+    lines = ["🚀 ZeroChart Strong Signals 🚀"]
+    for row in strong_signals[:MAX_TELEGRAM_SIGNALS]:
+        lines.append(
+            "🟢 {ticker}: Reward {reward} | Risk {risk} | Volume {volume}".format(
+                ticker=row["ticker"],
+                reward=_format_percent(row["reward_pct"]),
+                risk=_format_percent(row["risk_pct"]),
+                volume=_format_ratio(row["volume_spike"]),
+            )
+        )
+
+    remaining = len(strong_signals) - MAX_TELEGRAM_SIGNALS
+    if remaining > 0:
+        lines.append(f"...and {remaining} more strong signal(s)")
+
+    return "\n".join(lines)
+
+
+def send_telegram_message(text: str) -> None:
+    """Send a Telegram message using the Bot API via ``requests.post``."""
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        logger.warning(
+            "Skipping Telegram notification: TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not set"
+        )
+        return
+
+    url = TELEGRAM_API_URL.format(token=token)
+    try:
+        response = requests.post(
+            url,
+            json={"chat_id": chat_id, "text": text},
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if not data.get("ok"):
+            logger.error("Telegram API error: %s", data.get("description"))
+            return
+        logger.info("Telegram notification sent (%d characters)", len(text))
+    except requests.RequestException as exc:
+        logger.error("Failed to send Telegram notification: %s", exc)
+
+
+# --------------------------------------------------------------------------- #
 # Entry point
 # --------------------------------------------------------------------------- #
 
@@ -366,6 +466,10 @@ def main() -> None:
         return
 
     upsert_to_supabase(rows)
+
+    strong_signals = collect_strong_signals(rows)
+    send_telegram_message(build_telegram_message(strong_signals))
+
     logger.info("ZeroChart agent finished successfully.")
 
 
