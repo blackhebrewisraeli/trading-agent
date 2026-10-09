@@ -314,6 +314,9 @@ def analyze_ticker(ticker: str) -> dict[str, Any] | None:
     return {
         "ticker": ticker,
         "current_price": round(current_price, 2),
+        "rsi_14": _num_or_none(rsi_14),
+        "sma_50": _num_or_none(sma_50),
+        "sma_200": _num_or_none(sma_200),
         "stable_signal": stable_signal,
         "stable_explanation": stable_explanation,
         "radar_signal": radar_signal,
@@ -388,6 +391,20 @@ def _format_ratio(value: float) -> str:
     return f"{value:.2f}x"
 
 
+def _format_rsi(value: float | None) -> str:
+    """Render an RSI value, falling back to n/a when missing."""
+    return "n/a" if value is None else f"{value:.1f}"
+
+
+def _trend_indicator(row: dict[str, Any]) -> str:
+    """Return a short trend label based on price vs the 50-day SMA."""
+    price = row.get("current_price")
+    sma_50 = row.get("sma_50")
+    if price is None or sma_50 is None:
+        return "n/a"
+    return "📈" if price > sma_50 else "📉"
+
+
 def build_telegram_message(strong_signals: list[dict[str, Any]]) -> str:
     """Format strong signals (or a fallback) into a Telegram message."""
     if not strong_signals:
@@ -396,11 +413,14 @@ def build_telegram_message(strong_signals: list[dict[str, Any]]) -> str:
     lines = ["🚀 ZeroChart Strong Signals 🚀"]
     for row in strong_signals[:MAX_TELEGRAM_SIGNALS]:
         lines.append(
-            "🟢 {ticker}: Reward {reward} | Risk {risk} | Volume {volume}".format(
+            "🟢 {ticker}: Reward {reward} | Risk {risk} | Volume {volume} | "
+            "RSI {rsi} | Trend {trend}".format(
                 ticker=row["ticker"],
                 reward=_format_percent(row["reward_pct"]),
                 risk=_format_percent(row["risk_pct"]),
                 volume=_format_ratio(row["volume_spike"]),
+                rsi=_format_rsi(row.get("rsi_14")),
+                trend=_trend_indicator(row),
             )
         )
 
